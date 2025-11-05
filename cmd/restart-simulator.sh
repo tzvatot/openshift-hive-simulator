@@ -18,7 +18,7 @@ sleep 1
 
 echo "==> Starting hive-simulator..."
 cd "$PROJECT_ROOT"
-make run-hive-simulator > /tmp/hive-simulator-restart.log 2>&1 &
+make run-hive-simulator > /tmp/hive-simulator.log 2>&1 &
 SIMULATOR_PID=$!
 
 echo "==> Waiting for simulator to be ready..."
@@ -26,7 +26,7 @@ sleep 5
 
 # Check if kubeconfig was created
 if [ ! -f /tmp/hive-simulator-kubeconfig.yaml ]; then
-    echo "ERROR: Kubeconfig not found. Check /tmp/hive-simulator-restart.log for errors"
+    echo "ERROR: Kubeconfig not found. Check /tmp/hive-simulator.log for errors"
     exit 1
 fi
 
@@ -37,7 +37,7 @@ cd "$SCRIPT_DIR"
 echo ""
 echo "✓ Hive Simulator restarted successfully"
 echo "  PID: $SIMULATOR_PID"
-echo "  Logs: /tmp/hive-simulator-restart.log"
+echo "  Logs: /tmp/hive-simulator.log"
 echo "  Provision shard config: $SCRIPT_DIR/provision_shards_simulator.yaml"
 echo ""
 echo "To restart clusters-service with the new config:"
