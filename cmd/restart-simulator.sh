@@ -18,7 +18,9 @@ sleep 1
 
 echo "==> Starting hive-simulator..."
 cd "$PROJECT_ROOT"
-make run-hive-simulator > /tmp/hive-simulator.log 2>&1 &
+make run-hive-simulator 2>&1 | while IFS= read -r line; do
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $line"
+done > /tmp/hive-simulator.log &
 SIMULATOR_PID=$!
 
 echo "==> Waiting for simulator to be ready..."
