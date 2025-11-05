@@ -3,7 +3,9 @@ package controllers
 import (
 	"context"
 
+	corev1 "k8s.io/api/core/v1"
 	kuberrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -95,6 +97,15 @@ func (r *ProjectClaimReconciler) Reconcile(ctx context.Context, req reconcile.Re
 		return reconcile.Result{}, err
 	}
 
+	// Create GCP credentials secret when transitioning to Ready
+	if nextState == gcpv1alpha1.ClaimStatusReady && pc.Spec.GCPCredentialSecret.Name != "" {
+		if err := r.createGCPCredentialsSecret(ctx, pc); err != nil {
+			r.logger.Error(ctx, "Failed to create GCP credentials secret for ProjectClaim %s/%s: %v",
+				pc.Namespace, pc.Name, err)
+			return reconcile.Result{}, err
+		}
+	}
+
 	r.logger.Info(ctx, "ProjectClaim %s/%s transitioned to state: %s", pc.Namespace, pc.Name, nextState)
 
 	// Requeue after duration for next state transition
@@ -124,4 +135,61 @@ func (r *ProjectClaimReconciler) applyFailure(ctx context.Context, pc *gcpv1alph
 
 	r.logger.Info(ctx, "ProjectClaim %s/%s failed: %s", pc.Namespace, pc.Name, failure.Message)
 	return reconcile.Result{}, nil
+}
+
+// createGCPCredentialsSecret creates the GCP credentials secret for the ProjectClaim
+func (r *ProjectClaimReconciler) createGCPCredentialsSecret(ctx context.Context, pc *gcpv1alpha1.ProjectClaim) error {
+	// Check if secret already exists
+	secret := &corev1.Secret{}
+	secretName := client.ObjectKey{
+		Namespace: pc.Spec.GCPCredentialSecret.Namespace,
+		Name:      pc.Spec.GCPCredentialSecret.Name,
+	}
+
+	err := r.client.Get(ctx, secretName, secret)
+	if err == nil {
+		// Secret already exists, nothing to do
+		r.logger.Debug(ctx, "GCP credentials secret %s/%s already exists",
+			secretName.Namespace, secretName.Name)
+		return nil
+	}
+
+	if !kuberrors.IsNotFound(err) {
+		// Some other error occurred
+		return err
+	}
+
+	// Secret doesn't exist, create it with simulated GCP service account JSON
+	simulatedServiceAccount := `{
+  "type": "service_account",
+  "project_id": "simulated-project-id",
+  "private_key_id": "simulated-key-id",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nSimulatedPrivateKey\n-----END PRIVATE KEY-----\n",
+  "client_email": "simulated@simulated-project-id.iam.gserviceaccount.com",
+  "client_id": "123456789012345678901",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/simulated%40simulated-project-id.iam.gserviceaccount.com"
+}`
+
+	secret = &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      secretName.Name,
+			Namespace: secretName.Namespace,
+		},
+		Type: corev1.SecretTypeOpaque,
+		Data: map[string][]byte{
+			"osServiceAccount.json": []byte(simulatedServiceAccount),
+		},
+	}
+
+	if err := r.client.Create(ctx, secret); err != nil {
+		return err
+	}
+
+	r.logger.Info(ctx, "Created GCP credentials secret %s/%s for ProjectClaim %s/%s",
+		secretName.Namespace, secretName.Name, pc.Namespace, pc.Name)
+
+	return nil
 }

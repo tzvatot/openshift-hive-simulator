@@ -3,7 +3,9 @@ package controllers
 import (
 	"context"
 
+	corev1 "k8s.io/api/core/v1"
 	kuberrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -95,6 +97,15 @@ func (r *AccountClaimReconciler) Reconcile(ctx context.Context, req reconcile.Re
 		return reconcile.Result{}, err
 	}
 
+	// Create AWS credentials secret when transitioning to Ready
+	if nextState == aaov1alpha1.ClaimStatusReady && ac.Spec.AwsCredentialSecret.Name != "" {
+		if err := r.createAWSCredentialsSecret(ctx, ac); err != nil {
+			r.logger.Error(ctx, "Failed to create AWS credentials secret for AccountClaim %s/%s: %v",
+				ac.Namespace, ac.Name, err)
+			return reconcile.Result{}, err
+		}
+	}
+
 	r.logger.Info(ctx, "AccountClaim %s/%s transitioned to state: %s", ac.Namespace, ac.Name, nextState)
 
 	// Requeue after duration for next state transition
@@ -124,4 +135,49 @@ func (r *AccountClaimReconciler) applyFailure(ctx context.Context, ac *aaov1alph
 
 	r.logger.Info(ctx, "AccountClaim %s/%s failed: %s", ac.Namespace, ac.Name, failure.Message)
 	return reconcile.Result{}, nil
+}
+
+// createAWSCredentialsSecret creates the AWS credentials secret for the AccountClaim
+func (r *AccountClaimReconciler) createAWSCredentialsSecret(ctx context.Context, ac *aaov1alpha1.AccountClaim) error {
+	// Check if secret already exists
+	secret := &corev1.Secret{}
+	secretName := client.ObjectKey{
+		Namespace: ac.Spec.AwsCredentialSecret.Namespace,
+		Name:      ac.Spec.AwsCredentialSecret.Name,
+	}
+
+	err := r.client.Get(ctx, secretName, secret)
+	if err == nil {
+		// Secret already exists, nothing to do
+		r.logger.Debug(ctx, "AWS credentials secret %s/%s already exists",
+			secretName.Namespace, secretName.Name)
+		return nil
+	}
+
+	if !kuberrors.IsNotFound(err) {
+		// Some other error occurred
+		return err
+	}
+
+	// Secret doesn't exist, create it
+	secret = &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      secretName.Name,
+			Namespace: secretName.Namespace,
+		},
+		Type: corev1.SecretTypeOpaque,
+		Data: map[string][]byte{
+			"aws_access_key_id":     []byte("simulated-access-key-id"),
+			"aws_secret_access_key": []byte("simulated-secret-access-key"),
+		},
+	}
+
+	if err := r.client.Create(ctx, secret); err != nil {
+		return err
+	}
+
+	r.logger.Info(ctx, "Created AWS credentials secret %s/%s for AccountClaim %s/%s",
+		secretName.Namespace, secretName.Name, ac.Namespace, ac.Name)
+
+	return nil
 }
