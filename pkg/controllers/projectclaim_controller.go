@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"context"
+	"os"
 
 	corev1 "k8s.io/api/core/v1"
 	kuberrors "k8s.io/apimachinery/pkg/api/errors"
@@ -159,8 +160,12 @@ func (r *ProjectClaimReconciler) createGCPCredentialsSecret(ctx context.Context,
 		return err
 	}
 
-	// Secret doesn't exist, create it with simulated GCP service account JSON
-	simulatedServiceAccount := `{
+	// Get GCP service account JSON from environment variable
+	gcpServiceAccountJSON := os.Getenv("GCP_SERVICE_ACCOUNT_JSON")
+
+	if gcpServiceAccountJSON == "" {
+		r.logger.Warn(ctx, "GCP service account JSON not found in environment variable (GCP_SERVICE_ACCOUNT_JSON). Using placeholder values.")
+		gcpServiceAccountJSON = `{
   "type": "service_account",
   "project_id": "simulated-project-id",
   "private_key_id": "simulated-key-id",
@@ -172,7 +177,12 @@ func (r *ProjectClaimReconciler) createGCPCredentialsSecret(ctx context.Context,
   "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
   "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/simulated%40simulated-project-id.iam.gserviceaccount.com"
 }`
+	} else {
+		r.logger.Info(ctx, "Using GCP service account from environment variable for ProjectClaim %s/%s",
+			pc.Namespace, pc.Name)
+	}
 
+	// Secret doesn't exist, create it
 	secret = &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      secretName.Name,
@@ -180,7 +190,7 @@ func (r *ProjectClaimReconciler) createGCPCredentialsSecret(ctx context.Context,
 		},
 		Type: corev1.SecretTypeOpaque,
 		Data: map[string][]byte{
-			"osServiceAccount.json": []byte(simulatedServiceAccount),
+			"osServiceAccount.json": []byte(gcpServiceAccountJSON),
 		},
 	}
 

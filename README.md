@@ -86,6 +86,25 @@ The simulator will:
 3. Start a configuration API on port 8080
 4. Pre-populate 11 ClusterImageSets with proper OCM labels/annotations
 
+### Cloud Provider Credentials
+
+The simulator can use real cloud provider credentials to enable full cluster provisioning through clusters-service:
+
+**AWS Credentials:**
+```bash
+export AWS_ACCESS_KEY_ID="your-access-key-id"
+export AWS_SECRET_ACCESS_KEY="your-secret-access-key"
+make run
+```
+
+**GCP Credentials:**
+```bash
+export GCP_SERVICE_ACCOUNT_JSON='{"type":"service_account",...}'
+make run
+```
+
+**Note:** If these environment variables are not set, the simulator will use placeholder credentials. This allows basic testing but clusters will fail AWS/GCP credential validation in clusters-service.
+
 ### Accessing the Simulated Cluster
 
 ```bash

@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"context"
+	"os"
 
 	corev1 "k8s.io/api/core/v1"
 	kuberrors "k8s.io/apimachinery/pkg/api/errors"
@@ -159,6 +160,19 @@ func (r *AccountClaimReconciler) createAWSCredentialsSecret(ctx context.Context,
 		return err
 	}
 
+	// Get AWS credentials from environment variables
+	awsAccessKeyID := os.Getenv("AWS_ACCESS_KEY_ID")
+	awsSecretAccessKey := os.Getenv("AWS_SECRET_ACCESS_KEY")
+
+	if awsAccessKeyID == "" || awsSecretAccessKey == "" {
+		r.logger.Warn(ctx, "AWS credentials not found in environment variables (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY). Using placeholder values.")
+		awsAccessKeyID = "simulated-access-key-id"
+		awsSecretAccessKey = "simulated-secret-access-key"
+	} else {
+		r.logger.Info(ctx, "Using AWS credentials from environment variables for AccountClaim %s/%s",
+			ac.Namespace, ac.Name)
+	}
+
 	// Secret doesn't exist, create it
 	secret = &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
@@ -167,8 +181,8 @@ func (r *AccountClaimReconciler) createAWSCredentialsSecret(ctx context.Context,
 		},
 		Type: corev1.SecretTypeOpaque,
 		Data: map[string][]byte{
-			"aws_access_key_id":     []byte("simulated-access-key-id"),
-			"aws_secret_access_key": []byte("simulated-secret-access-key"),
+			"aws_access_key_id":     []byte(awsAccessKeyID),
+			"aws_secret_access_key": []byte(awsSecretAccessKey),
 		},
 	}
 
