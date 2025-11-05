@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -84,11 +85,14 @@ func (s *Server) Start(ctx context.Context) error {
 	}
 
 	// Start controller manager in background
+	mgrDone := make(chan struct{})
 	go func() {
+		defer close(mgrDone)
 		s.logger.Info(ctx, "Starting controller manager")
 		if err := s.mgr.Start(ctx); err != nil {
 			s.logger.Error(ctx, "Controller manager failed: %v", err)
 		}
+		s.logger.Info(ctx, "Controller manager stopped")
 	}()
 
 	// Wait for cache sync
@@ -109,6 +113,16 @@ func (s *Server) Start(ctx context.Context) error {
 	<-ctx.Done()
 
 	s.logger.Info(ctx, "Shutting down Hive Simulator")
+
+	// Wait for controller manager to stop (with timeout)
+	s.logger.Info(ctx, "Waiting for controller manager to stop...")
+	select {
+	case <-mgrDone:
+		s.logger.Info(ctx, "Controller manager stopped gracefully")
+	case <-time.After(10 * time.Second):
+		s.logger.Warn(ctx, "Controller manager did not stop within timeout")
+	}
+
 	return s.stop(context.Background())
 }
 
@@ -120,29 +134,39 @@ func (s *Server) setupEnvtest(ctx context.Context) error {
 	ctrl.SetLogger(logr.Discard())
 
 	// Create scheme with all our CRDs
-	scheme := runtime.NewScheme()
-	if err := hivev1.AddToScheme(scheme); err != nil {
+	runtimeScheme := runtime.NewScheme()
+
+	// Add core Kubernetes types (including Secret, ConfigMap, etc.)
+	if err := corev1.AddToScheme(runtimeScheme); err != nil {
+		return errors.Wrapf(err, "failed to add core Kubernetes types to scheme")
+	}
+
+	if err := hivev1.AddToScheme(runtimeScheme); err != nil {
 		return errors.Wrapf(err, "failed to add Hive to scheme")
 	}
-	if err := aaov1alpha1.AddToScheme(scheme); err != nil {
+	if err := aaov1alpha1.AddToScheme(runtimeScheme); err != nil {
 		return errors.Wrapf(err, "failed to add AWS Account Operator to scheme")
 	}
-	if err := gcpv1alpha1.AddToScheme(scheme); err != nil {
+	if err := gcpv1alpha1.AddToScheme(runtimeScheme); err != nil {
 		return errors.Wrapf(err, "failed to add GCP Project Operator to scheme")
 	}
 
-	// Find the CRD directory relative to the binary location
-	crdPath := filepath.Join(filepath.Dir(os.Args[0]), "..", "cmd", "hive-simulator", "crds")
+	// Find the CRD directory - try multiple possible locations
+	crdPath := filepath.Join(filepath.Dir(os.Args[0]), "..", "crds")
 	if _, err := os.Stat(crdPath); os.IsNotExist(err) {
-		// Fallback to relative path from working directory
-		crdPath = "cmd/hive-simulator/crds"
+		// Try relative path from working directory
+		crdPath = "crds"
+		if _, err := os.Stat(crdPath); os.IsNotExist(err) {
+			// Try uhc-clusters-service monorepo structure
+			crdPath = "cmd/hive-simulator/crds"
+		}
 	}
 	s.logger.Info(ctx, "Loading CRDs from: %s", crdPath)
 
 	// Note: envtest uses dynamic ports which change on each restart
 	// Use restart-simulator.sh to automatically regenerate provision shard config after restart
 	s.envTest = &envtest.Environment{
-		Scheme: scheme,
+		Scheme: runtimeScheme,
 		CRDDirectoryPaths: []string{
 			crdPath,
 		},
@@ -206,6 +230,11 @@ func (s *Server) setupK8sClient(ctx context.Context) error {
 	s.logger.Info(ctx, "Setting up Kubernetes client")
 
 	scheme := runtime.NewScheme()
+
+	// Add core Kubernetes types (including Secret, ConfigMap, etc.)
+	if err := corev1.AddToScheme(scheme); err != nil {
+		return errors.Wrapf(err, "failed to add core Kubernetes types to scheme")
+	}
 
 	// Add Hive types
 	if err := hivev1.AddToScheme(scheme); err != nil {
@@ -392,31 +421,38 @@ func (s *Server) startAPIServer(ctx context.Context) error {
 
 // stop stops the simulator
 func (s *Server) stop(ctx context.Context) error {
-	s.logger.Info(ctx, "Stopping Hive Simulator")
+	s.logger.Info(ctx, "Stopping Hive Simulator components")
 
 	// Stop API server
 	if s.apiServer != nil {
+		s.logger.Info(ctx, "Stopping API server...")
 		shutdownCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
 		if err := s.apiServer.Shutdown(shutdownCtx); err != nil {
 			s.logger.Error(ctx, "Failed to shutdown API server: %v", err)
+		} else {
+			s.logger.Info(ctx, "API server stopped")
 		}
 	}
 
-	// Stop envtest
+	// Stop envtest (this stops etcd and kube-apiserver)
 	if s.envTest != nil {
+		s.logger.Info(ctx, "Stopping envtest environment (etcd and kube-apiserver)...")
 		if err := s.envTest.Stop(); err != nil {
 			s.logger.Error(ctx, "Failed to stop envtest: %v", err)
+		} else {
+			s.logger.Info(ctx, "Envtest environment stopped")
 		}
 	}
 
 	// Clean up kubeconfig
 	if s.kubeconfigPath != "" {
+		s.logger.Debug(ctx, "Removing kubeconfig file: %s", s.kubeconfigPath)
 		if err := os.Remove(s.kubeconfigPath); err != nil {
 			s.logger.Warn(ctx, "Failed to remove kubeconfig: %v", err)
 		}
 	}
 
-	s.logger.Info(ctx, "Hive Simulator stopped")
+	s.logger.Info(ctx, "Hive Simulator stopped cleanly")
 	return nil
 }

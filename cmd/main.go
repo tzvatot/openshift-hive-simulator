@@ -4,9 +4,11 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/openshift-online/ocm-sdk-go/logging"
 
@@ -74,9 +76,23 @@ func main() {
 	logger.Info(ctx, "Hive Simulator exited cleanly")
 }
 
+// timestampWriter wraps an io.Writer and adds timestamps to each line
+type timestampWriter struct {
+	writer io.Writer
+}
+
+func (tw *timestampWriter) Write(p []byte) (n int, err error) {
+	timestamp := time.Now().Format(time.RFC3339)
+	prefixed := fmt.Sprintf("[%s] %s", timestamp, string(p))
+	return tw.writer.Write([]byte(prefixed))
+}
+
 // setupLogger creates and configures the logger
 func setupLogger(level string) (logging.Logger, error) {
 	builder := logging.NewStdLoggerBuilder()
+
+	// Wrap stdout and stderr with timestamps using the Streams() method
+	builder.Streams(&timestampWriter{writer: os.Stdout}, &timestampWriter{writer: os.Stderr})
 
 	// Set log level
 	switch level {
