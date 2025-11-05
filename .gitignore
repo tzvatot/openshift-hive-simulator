@@ -1,0 +1,41 @@
+# Binaries
+bin/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+coverage.out
+coverage.html
+
+# Go workspace file
+go.work
+go.work.sum
+
+# Environment variables
+.env
+.env.*
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Envtest binaries
+testbin/
+
+# Generated provision shard config
+provision_shards_simulator.yaml
+
+# Temporary kubeconfig
+/tmp/hive-simulator-kubeconfig.yaml
+
+# Build artifacts
+*.log

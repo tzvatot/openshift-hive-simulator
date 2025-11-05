@@ -1,0 +1,111 @@
+# Hive Simulator Configuration
+# This file configures the behavior of the Hive Simulator for testing and development
+
+clusterDeployment:
+  # Total time from creation to ready state (in seconds)
+  defaultDelaySeconds: 5
+
+  # Wait for AccountClaim (AWS) or ProjectClaim (GCP) to be Ready before progressing
+  dependsOnAccountClaim: true
+  dependsOnProjectClaim: true
+
+  # State progression and timing
+  states:
+    - name: Pending
+      durationSeconds: 1
+
+    - name: Provisioning
+      durationSeconds: 2
+      conditions:
+        - type: DeprovisionLaunchError
+          status: "False"
+          reason: Provisioning
+          message: "Cluster is provisioning"
+
+    - name: Installing
+      durationSeconds: 1
+      conditions:
+        - type: DNSNotReady
+          status: "False"
+          reason: DNSReady
+          message: "DNS is ready"
+
+    - name: Running
+      durationSeconds: 1
+      conditions:
+        - type: ClusterDeploymentCompleted
+          status: "True"
+          reason: ClusterDeploymentCompleted
+          message: "Cluster deployment is complete"
+
+  # Failure scenarios (probabilistic)
+  failureScenarios: []
+    # Uncomment to enable random failures:
+    # - probability: 0.1  # 10% chance of failure
+    #   condition: ProvisionFailed
+    #   message: "Simulated AWS capacity error"
+    #   reason: InsufficientCapacity
+
+accountClaim:
+  # Total time from creation to ready state (in seconds)
+  defaultDelaySeconds: 3
+
+  # State progression and timing
+  states:
+    - name: Pending
+      durationSeconds: 2
+
+    - name: Ready
+      durationSeconds: 1
+
+  failureScenarios: []
+
+projectClaim:
+  # Total time from creation to ready state (in seconds)
+  defaultDelaySeconds: 4
+
+  # State progression and timing
+  states:
+    - name: Pending
+      durationSeconds: 1
+
+    - name: PendingProject
+      durationSeconds: 2
+
+    - name: Ready
+      durationSeconds: 1
+
+  failureScenarios: []
+
+# ClusterImageSets to pre-populate
+# Recent versions from different channels for realistic testing
+clusterImageSets:
+  # Stable channel - production-ready versions
+  - name: "openshift-v4.17.0"
+    visible: true
+  - name: "openshift-v4.17.5"
+    visible: true
+  - name: "openshift-v4.18.0"
+    visible: true
+
+  # Candidate channel - release candidates
+  - name: "openshift-v4.17.0-ec.0-candidate"
+    visible: true
+  - name: "openshift-v4.17.0-ec.1-candidate"
+    visible: true
+  - name: "openshift-v4.18.0-ec.0-candidate"
+    visible: true
+
+  # Fast channel - early stable releases
+  - name: "openshift-v4.17.0-fc.0-fast"
+    visible: true
+  - name: "openshift-v4.17.0-fc.1-fast"
+    visible: true
+  - name: "openshift-v4.18.0-fc.0-fast"
+    visible: true
+
+  # Nightly channel - bleeding edge builds
+  - name: "openshift-v4.17.0-0.nightly-2024-08-01-120000-nightly"
+    visible: true
+  - name: "openshift-v4.18.0-0.nightly-2024-08-02-120000-nightly"
+    visible: true
